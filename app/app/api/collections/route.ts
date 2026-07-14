@@ -13,3 +13,15 @@ export async function POST(request: Request) {
   if (found) found.quantity += 1; else collections[trainer].push({ card, quantity: 1, addedAt: new Date().toISOString() });
   await fs.writeFile(file, JSON.stringify(collections, null, 2)); return Response.json(collections);
 }
+
+export async function DELETE(request: Request) {
+  const { trainer, cardId } = await request.json() as { trainer: TrainerId; cardId: string };
+  if (!("papa leo remy".split(" ")).includes(trainer) || !cardId) return Response.json({ error: "Invalid card" }, { status: 400 });
+  const collections = await read();
+  const found = collections[trainer].find((item) => item.card.id === cardId);
+  if (!found) return Response.json({ error: "Card not found" }, { status: 404 });
+  if (found.quantity > 1) found.quantity -= 1;
+  else collections[trainer] = collections[trainer].filter((item) => item.card.id !== cardId);
+  await fs.writeFile(file, JSON.stringify(collections, null, 2));
+  return Response.json(collections);
+}

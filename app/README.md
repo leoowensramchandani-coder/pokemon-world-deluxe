@@ -1,4 +1,14 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is the family Pokémon card collection tracker.
+
+## Enable the binder scanner
+
+Create a file named `.env.local` inside the `app` folder and add:
+
+```text
+OPENAI_API_KEY=your_private_key_here
+```
+
+Never commit or share this key. Restart `npm run dev` after adding it. The scanner uses image input to identify cards, then asks you to confirm matches before saving them.
 
 ## Getting Started
 
