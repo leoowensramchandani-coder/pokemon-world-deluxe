@@ -1,4 +1,5 @@
 import type { PokemonCard } from "@/lib/types";
+import { isEditor } from "@/lib/cloud";
 
 type DetectedCard = { name: string; number: string; setName: string; confidence: number };
 
@@ -26,6 +27,7 @@ async function findCard(detected: DetectedCard): Promise<PokemonCard | null> {
 }
 
 export async function POST(request: Request) {
+  if (!(await isEditor(request))) return Response.json({ error: "Family sign-in required." }, { status: 401 });
   if (!process.env.OPENAI_API_KEY) return Response.json({ error: "Scanner setup needed", code: "MISSING_OPENAI_KEY" }, { status: 503 });
   const form = await request.formData();
   const files = form.getAll("images").filter((item): item is File => item instanceof File);

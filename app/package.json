@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "import:collections": "node --env-file=.env.local scripts/import-local-collections.mjs"
   },
   "dependencies": {
     "next": "16.2.10",
