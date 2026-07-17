@@ -62,7 +62,16 @@ export async function POST(request: Request) {
       text: { format: { type: "json_schema", name: "binder_cards", strict: true, schema } },
     }),
   });
-  if (!aiResponse.ok) { const detail = await aiResponse.text(); console.error("Scanner API error", aiResponse.status, detail); return Response.json({ error: "The scanner could not read those pictures. Please try again." }, { status: 502 }); }
+  if (!aiResponse.ok) {
+    const detail = await aiResponse.text();
+    console.error("Scanner API error", aiResponse.status, detail);
+    let code = "OPENAI_ERROR";
+    try { code = JSON.parse(detail)?.error?.code ?? code; } catch {}
+    if (aiResponse.status === 429 && code === "insufficient_quota") {
+      return Response.json({ error: "Scanner credits are empty. A grown-up needs to add OpenAI API credits, then try again.", code: "OPENAI_QUOTA" }, { status: 503 });
+    }
+    return Response.json({ error: "The scanner could not read those pictures. Please try again.", code }, { status: 502 });
+  }
   const detected = JSON.parse(outputText(await aiResponse.json()) || "{\"cards\":[]}").cards as DetectedCard[];
   const matched = await Promise.all(detected.map(async (item) => ({ detected: item, card: await findCard(item) })));
   return Response.json({ matches: matched });
