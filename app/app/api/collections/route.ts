@@ -17,15 +17,19 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json() as { action?: string; name?: string; trainer?: string; card?: PokemonCard };
   const email = await getEditorEmail(request);
   if (!email) return Response.json({ error: "Admin sign-in required." }, { status: 401 });
-  if (body.action === "create") {
-    if (!body.name?.trim() || body.name.trim().length > 40) return Response.json({ error: "Choose a collection name." }, { status: 400 });
+  if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+    const form = await request.formData();
+    const name = String(form.get("name") ?? ""); const partnerPokemon = String(form.get("partnerPokemon") ?? ""); const ability = String(form.get("ability") ?? ""); const photoValue = form.get("photo"); const photo = photoValue instanceof File && photoValue.size ? photoValue : undefined;
+    if (!name.trim() || name.trim().length > 40) return Response.json({ error: "Choose a collection name." }, { status: 400 });
+    if (!partnerPokemon || !ability) return Response.json({ error: "Choose a Partner and Power." }, { status: 400 });
+    if (photo && (!photo.type.startsWith("image/") || photo.size > 5_000_000)) return Response.json({ error: "Choose a JPG or PNG photo smaller than 5 MB." }, { status: 400 });
     if (!cloudConfigured) return Response.json({ error: "New collections require cloud mode." }, { status: 503 });
-    await createCloudCollection(body.name, email);
+    await createCloudCollection({ name, email, partnerPokemon, ability, photo });
     return GET(request);
   }
+  const body = await request.json() as { trainer?: string; card?: PokemonCard };
   const { trainer, card } = body;
   if (!trainer || !card?.id || !card.images?.small) return Response.json({ error: "Invalid card" }, { status: 400 });
   if (!(await canEditCollection(request, trainer))) return Response.json({ error: "This admin cannot edit that collection." }, { status: 403 });

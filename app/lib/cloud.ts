@@ -45,6 +45,9 @@ export async function getEditorEmail(request: Request) {
 export async function getEditableCollectionIds(email: string | null) {
   if (!email) return [];
   if (!cloudConfigured) return trainers.map((item) => item.id);
+  const adminResponse = await rest(`admins?email=eq.${encodeURIComponent(email)}&select=is_superuser`);
+  const admin = (await adminResponse.json() as Array<{ is_superuser: boolean }>)[0];
+  if (admin?.is_superuser) return (await getCollectionDefinitions()).map((item) => item.id);
   const response = await rest(`admin_collections?admin_email=eq.${encodeURIComponent(email)}&select=collection_id`);
   return (await response.json() as Array<{ collection_id: string }>).map((row) => row.collection_id);
 }
@@ -64,10 +67,18 @@ export async function removeCloudCard(collectionId: string, cardId: string) {
   await rest("rpc/remove_collection_card", { method: "POST", body: JSON.stringify({ p_trainer_id: collectionId, p_card_id: cardId }) });
 }
 
-export async function createCloudCollection(name: string, email: string) {
+export async function createCloudCollection({ name, email, partnerPokemon, ability, photo }: { name: string; email: string; partnerPokemon: string; ability: string; photo?: File }) {
   const base = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "binder";
   const id = `${base}-${crypto.randomUUID().slice(0, 6)}`;
-  const definition = { id, name: name.trim(), title: "Pokémon Collector", badge: "📘", theme: "from-blue-950 via-indigo-800 to-blue-700 border-sky-300 text-white", button: "bg-sky-300 text-slate-950", accent: "text-sky-200" };
+  let photoUrl: string | undefined;
+  if (photo?.size) {
+    const extension = photo.type === "image/png" ? "png" : "jpg";
+    const objectName = `${id}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+    const upload = await fetch(`${url}/storage/v1/object/trainer-photos/${objectName}`, { method: "POST", headers: { apikey: serviceKey!, Authorization: `Bearer ${serviceKey}`, "Content-Type": photo.type || "image/jpeg", "x-upsert": "false" }, body: Buffer.from(await photo.arrayBuffer()) });
+    if (!upload.ok) throw new Error(`Photo upload failed: ${upload.status}`);
+    photoUrl = `${url}/storage/v1/object/public/trainer-photos/${objectName}`;
+  }
+  const definition = { id, name: name.trim(), title: "Pokémon Collector", badge: "📘", photo: photoUrl, theme: "from-blue-950 via-indigo-800 to-blue-700 border-sky-300 text-white", button: "bg-sky-300 text-slate-950", accent: "text-sky-200", partner_pokemon: partnerPokemon, ability };
   await rest("collection_definitions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(definition) });
   await rest("admin_collections", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ admin_email: email, collection_id: id }) });
   return definition;

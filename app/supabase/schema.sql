@@ -30,6 +30,12 @@ create table if not exists public.admin_collections (
   primary key (admin_email, collection_id)
 );
 
+create table if not exists public.admins (
+  email text primary key,
+  is_superuser boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.admin_wishlist (
   admin_email text not null,
   card_id text not null,
@@ -45,12 +51,24 @@ insert into public.collection_definitions (id, name, title, badge, photo, theme,
 on conflict (id) do nothing;
 
 insert into public.admin_collections (admin_email, collection_id) values
-  ('leoramchandani@gmail.com', 'papa'), ('leoramchandani@gmail.com', 'leo'), ('leoramchandani@gmail.com', 'remy')
+  ('leoramchandani@gmail.com', 'leo'), ('leoramchandani@gmail.com', 'remy')
 on conflict do nothing;
+
+delete from public.admin_collections where admin_email = 'leoramchandani@gmail.com' and collection_id = 'papa';
+
+insert into public.admins (email, is_superuser) values
+  ('rahilramchandani@gmail.com', true),
+  ('leoramchandani@gmail.com', false),
+  ('its.sidd@gmail.com', false)
+on conflict (email) do update set is_superuser = excluded.is_superuser;
+
+insert into storage.buckets (id, name, public) values ('trainer-photos', 'trainer-photos', true)
+on conflict (id) do update set public = true;
 
 alter table public.card_collections enable row level security;
 alter table public.collection_definitions enable row level security;
 alter table public.admin_collections enable row level security;
+alter table public.admins enable row level security;
 alter table public.admin_wishlist enable row level security;
 
 create or replace function public.add_collection_card(p_trainer_id text, p_card_id text, p_card jsonb)
@@ -73,6 +91,7 @@ $$;
 revoke all on public.card_collections from anon, authenticated;
 revoke all on public.collection_definitions from anon, authenticated;
 revoke all on public.admin_collections from anon, authenticated;
+revoke all on public.admins from anon, authenticated;
 revoke all on public.admin_wishlist from anon, authenticated;
 revoke all on function public.add_collection_card(text, text, jsonb) from public;
 revoke all on function public.remove_collection_card(text, text) from public;
