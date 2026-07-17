@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { Collections, PokemonCard } from "@/lib/types";
 import { trainers } from "@/lib/trainers";
-import { addCloudCard, canEditCollection, cloudConfigured, createCloudCollection, getCloudCollections, getCollectionDefinitions, getEditableCollectionIds, getEditorEmail, getPublicBadgeAdmins, removeCloudCard } from "@/lib/cloud";
+import { addCloudCard, canEditCollection, cloudConfigured, createCloudCollection, getCloudCollections, getCollectionDefinitions, getEditableCollectionIds, getEditorEmail, getPublicBadgeAdmins, removeCloudCard, updateCloudCollection } from "@/lib/cloud";
 
 const file = path.join(process.cwd(), "data", "collections.json");
 const localEmpty = (): Collections => Object.fromEntries(trainers.map((item) => [item.id, []]));
@@ -45,5 +45,16 @@ export async function DELETE(request: Request) {
   if (!(await canEditCollection(request, trainer))) return Response.json({ error: "This admin cannot edit that collection." }, { status: 403 });
   if (cloudConfigured) await removeCloudCard(trainer, cardId);
   else { const collections = await readLocal(); const items = collections[trainer] ?? []; const found = items.find((item) => item.card.id === cardId); if (!found) return Response.json({ error: "Card not found" }, { status: 404 }); if (found.quantity > 1) found.quantity -= 1; else collections[trainer] = items.filter((item) => item.card.id !== cardId); await fs.writeFile(file, JSON.stringify(collections, null, 2)); }
+  return GET(request);
+}
+
+export async function PATCH(request: Request) {
+  const form = await request.formData();
+  const trainer = String(form.get("trainer") ?? ""); const partnerPokemon = String(form.get("partnerPokemon") ?? ""); const ability = String(form.get("ability") ?? ""); const photoValue = form.get("photo"); const photo = photoValue instanceof File && photoValue.size ? photoValue : undefined;
+  if (!trainer || !partnerPokemon || !ability) return Response.json({ error: "Choose a Partner and Power." }, { status: 400 });
+  if (!(await canEditCollection(request, trainer))) return Response.json({ error: "This admin cannot edit that collection." }, { status: 403 });
+  if (photo && (!photo.type.startsWith("image/") || photo.size > 5_000_000)) return Response.json({ error: "Choose a JPG or PNG photo smaller than 5 MB." }, { status: 400 });
+  if (!cloudConfigured) return Response.json({ error: "Profile changes require cloud mode." }, { status: 503 });
+  await updateCloudCollection(trainer, partnerPokemon, ability, photo);
   return GET(request);
 }

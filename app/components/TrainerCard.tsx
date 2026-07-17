@@ -1,7 +1,7 @@
 import Image from "next/image";
 import type { CollectionDefinition, CollectionItem, TrainerId } from "@/lib/types";
 
-export default function TrainerCard({ trainer, items, onOpen, editable }: { trainer: CollectionDefinition; items: CollectionItem[]; onOpen: (id: TrainerId) => void; editable: boolean }) {
+export default function TrainerCard({ trainer, items, onOpen, onEdit, editable }: { trainer: CollectionDefinition; items: CollectionItem[]; onOpen: (id: TrainerId) => void; onEdit: (trainer: CollectionDefinition) => void; editable: boolean }) {
   const count = items.reduce((sum, item) => sum + item.quantity, 0);
   const level = Math.floor(count / 5) + 1;
   return (
@@ -14,6 +14,7 @@ export default function TrainerCard({ trainer, items, onOpen, editable }: { trai
         <div className="level-row"><b>Trainer Level {level}</b><b className={trainer.accent ?? ""}>{count * 20} XP</b></div>
         <div className="trainer-stats"><div><small>Partner</small><b>{trainer.partnerPokemon ?? "Choose one"}</b></div><div><small>Power</small><b>{trainer.ability ?? "Card Collector"}</b></div><div><small>Cards</small><strong>{count}</strong></div><div><small>Access</small><strong>{editable ? "Admin" : "View"}</strong></div></div>
         <button className={`binder-button ${trainer.button ?? "bg-sky-300 text-slate-950"}`} onClick={() => onOpen(trainer.id)}>Open {trainer.name}&apos;s Binder</button>
+        {editable && <button className="profile-edit-button" onClick={() => onEdit(trainer)}>✏️ Change My Trainer Profile</button>}
       </div>
     </article>
   );

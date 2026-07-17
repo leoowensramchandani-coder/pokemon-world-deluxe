@@ -4,6 +4,8 @@ import { trainers } from "./trainers";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const superuserEmail = "rahilramchandani@gmail.com";
+const knownAdminEmails = [superuserEmail, "leoramchandani@gmail.com", "its.sidd@gmail.com"];
 
 export const cloudConfigured = Boolean(url && publicKey && serviceKey);
 
@@ -41,35 +43,33 @@ export async function getEditorEmail(request: Request) {
   const user = await response.json() as { email?: string };
   const email = user.email?.toLowerCase();
   if (!email) return null;
-  const adminResponse = await rest(`admins?email=eq.${encodeURIComponent(email)}&select=email`);
-  return (await adminResponse.json() as Array<{ email: string }>).length ? email : null;
+  if (knownAdminEmails.includes(email)) return email;
+  const mappingResponse = await rest(`admin_collections?admin_email=eq.${encodeURIComponent(email)}&select=admin_email&limit=1`);
+  return (await mappingResponse.json() as Array<{ admin_email: string }>).length ? email : null;
 }
 
 export async function getEditableCollectionIds(email: string | null) {
   if (!email) return [];
   if (!cloudConfigured) return trainers.map((item) => item.id);
-  const adminResponse = await rest(`admins?email=eq.${encodeURIComponent(email)}&select=is_superuser`);
-  const admin = (await adminResponse.json() as Array<{ is_superuser: boolean }>)[0];
-  if (admin?.is_superuser) return (await getCollectionDefinitions()).map((item) => item.id);
+  if (email === superuserEmail) return (await getCollectionDefinitions()).map((item) => item.id);
   const response = await rest(`admin_collections?admin_email=eq.${encodeURIComponent(email)}&select=collection_id`);
   return (await response.json() as Array<{ collection_id: string }>).map((row) => row.collection_id);
 }
 
 export async function getPublicBadgeAdmins(): Promise<AdminBadgeProfile[]> {
   if (!cloudConfigured) return [{ email: "Family Admin", collectionIds: trainers.map((item) => item.id), wishlistCount: 0 }];
-  const [adminsResponse, mappingsResponse, wishlistResponse, definitions] = await Promise.all([
-    rest("admins?select=email,is_superuser&order=created_at.asc"),
+  const [mappingsResponse, wishlistResponse, definitions] = await Promise.all([
     rest("admin_collections?select=admin_email,collection_id"),
     rest("admin_wishlist?select=admin_email"),
     getCollectionDefinitions(),
   ]);
-  const admins = await adminsResponse.json() as Array<{ email: string; is_superuser: boolean }>;
   const mappings = await mappingsResponse.json() as Array<{ admin_email: string; collection_id: string }>;
   const wishes = await wishlistResponse.json() as Array<{ admin_email: string }>;
-  return admins.map((admin) => ({
-    email: admin.email,
-    collectionIds: admin.is_superuser ? definitions.map((item) => item.id) : mappings.filter((item) => item.admin_email === admin.email).map((item) => item.collection_id),
-    wishlistCount: wishes.filter((item) => item.admin_email === admin.email).length,
+  const emails = Array.from(new Set([...knownAdminEmails, ...mappings.map((item) => item.admin_email)]));
+  return emails.map((email) => ({
+    email,
+    collectionIds: email === superuserEmail ? definitions.map((item) => item.id) : mappings.filter((item) => item.admin_email === email).map((item) => item.collection_id),
+    wishlistCount: wishes.filter((item) => item.admin_email === email).length,
   }));
 }
 
@@ -88,21 +88,30 @@ export async function removeCloudCard(collectionId: string, cardId: string) {
   await rest("rpc/remove_collection_card", { method: "POST", body: JSON.stringify({ p_trainer_id: collectionId, p_card_id: cardId }) });
 }
 
+async function uploadTrainerPhoto(collectionId: string, photo?: File) {
+  if (!photo?.size) return undefined;
+  const extension = photo.type === "image/png" ? "png" : "jpg";
+  const objectName = `${collectionId}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+  const upload = await fetch(`${url}/storage/v1/object/trainer-photos/${objectName}`, { method: "POST", headers: { apikey: serviceKey!, Authorization: `Bearer ${serviceKey}`, "Content-Type": photo.type || "image/jpeg", "x-upsert": "false" }, body: Buffer.from(await photo.arrayBuffer()) });
+  if (!upload.ok) throw new Error(`Photo upload failed: ${upload.status}`);
+  return `${url}/storage/v1/object/public/trainer-photos/${objectName}`;
+}
+
 export async function createCloudCollection({ name, email, partnerPokemon, ability, photo }: { name: string; email: string; partnerPokemon: string; ability: string; photo?: File }) {
   const base = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "binder";
   const id = `${base}-${crypto.randomUUID().slice(0, 6)}`;
-  let photoUrl: string | undefined;
-  if (photo?.size) {
-    const extension = photo.type === "image/png" ? "png" : "jpg";
-    const objectName = `${id}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
-    const upload = await fetch(`${url}/storage/v1/object/trainer-photos/${objectName}`, { method: "POST", headers: { apikey: serviceKey!, Authorization: `Bearer ${serviceKey}`, "Content-Type": photo.type || "image/jpeg", "x-upsert": "false" }, body: Buffer.from(await photo.arrayBuffer()) });
-    if (!upload.ok) throw new Error(`Photo upload failed: ${upload.status}`);
-    photoUrl = `${url}/storage/v1/object/public/trainer-photos/${objectName}`;
-  }
+  const photoUrl = await uploadTrainerPhoto(id, photo);
   const definition = { id, name: name.trim(), title: "Pokémon Collector", badge: "📘", photo: photoUrl, theme: "from-blue-950 via-indigo-800 to-blue-700 border-sky-300 text-white", button: "bg-sky-300 text-slate-950", accent: "text-sky-200", partner_pokemon: partnerPokemon, ability };
   await rest("collection_definitions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(definition) });
   await rest("admin_collections", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ admin_email: email, collection_id: id }) });
   return definition;
+}
+
+export async function updateCloudCollection(collectionId: string, partnerPokemon: string, ability: string, photo?: File) {
+  const photoUrl = await uploadTrainerPhoto(collectionId, photo);
+  const changes: Record<string, string> = { partner_pokemon: partnerPokemon, ability };
+  if (photoUrl) changes.photo = photoUrl;
+  await rest(`collection_definitions?id=eq.${encodeURIComponent(collectionId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(changes) });
 }
 
 export async function getWishlist(email: string) {
