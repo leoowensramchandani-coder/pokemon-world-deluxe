@@ -1,4 +1,17 @@
-export type TrainerId = "papa" | "leo" | "remy";
+export type TrainerId = string;
+
+export type CollectionDefinition = {
+  id: string;
+  name: string;
+  title: string;
+  badge: string;
+  photo?: string;
+  theme?: string;
+  button?: string;
+  accent?: string;
+  partnerPokemon?: string;
+  ability?: string;
+};
 
 export type PokemonCard = {
   id: string;
@@ -20,3 +33,10 @@ export type CollectionItem = {
 };
 
 export type Collections = Record<TrainerId, CollectionItem[]>;
+
+export type CollectionState = {
+  collections: Collections;
+  definitions: CollectionDefinition[];
+  editableIds: string[];
+  adminEmail?: string;
+};
