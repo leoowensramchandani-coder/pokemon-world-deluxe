@@ -39,4 +39,11 @@ export type CollectionState = {
   definitions: CollectionDefinition[];
   editableIds: string[];
   adminEmail?: string;
+  badgeAdmins?: AdminBadgeProfile[];
+};
+
+export type AdminBadgeProfile = {
+  email: string;
+  collectionIds: string[];
+  wishlistCount: number;
 };

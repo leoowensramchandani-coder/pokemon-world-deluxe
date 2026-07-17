@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { Collections, PokemonCard } from "@/lib/types";
 import { trainers } from "@/lib/trainers";
-import { addCloudCard, canEditCollection, cloudConfigured, createCloudCollection, getCloudCollections, getCollectionDefinitions, getEditableCollectionIds, getEditorEmail, removeCloudCard } from "@/lib/cloud";
+import { addCloudCard, canEditCollection, cloudConfigured, createCloudCollection, getCloudCollections, getCollectionDefinitions, getEditableCollectionIds, getEditorEmail, getPublicBadgeAdmins, removeCloudCard } from "@/lib/cloud";
 
 const file = path.join(process.cwd(), "data", "collections.json");
 const localEmpty = (): Collections => Object.fromEntries(trainers.map((item) => [item.id, []]));
@@ -13,7 +13,8 @@ export async function GET(request: Request) {
   const collections = cloudConfigured ? await getCloudCollections(definitions) : await readLocal();
   const adminEmail = await getEditorEmail(request);
   const editableIds = adminEmail ? (cloudConfigured ? await getEditableCollectionIds(adminEmail) : definitions.map((item) => item.id)) : [];
-  return Response.json({ collections, definitions, editableIds, adminEmail });
+  const badgeAdmins = await getPublicBadgeAdmins();
+  return Response.json({ collections, definitions, editableIds, adminEmail, badgeAdmins });
 }
 
 export async function POST(request: Request) {

@@ -1,4 +1,4 @@
-import type { CollectionDefinition, Collections, PokemonCard } from "./types";
+import type { AdminBadgeProfile, CollectionDefinition, Collections, PokemonCard } from "./types";
 import { trainers } from "./trainers";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -53,6 +53,24 @@ export async function getEditableCollectionIds(email: string | null) {
   if (admin?.is_superuser) return (await getCollectionDefinitions()).map((item) => item.id);
   const response = await rest(`admin_collections?admin_email=eq.${encodeURIComponent(email)}&select=collection_id`);
   return (await response.json() as Array<{ collection_id: string }>).map((row) => row.collection_id);
+}
+
+export async function getPublicBadgeAdmins(): Promise<AdminBadgeProfile[]> {
+  if (!cloudConfigured) return [{ email: "Family Admin", collectionIds: trainers.map((item) => item.id), wishlistCount: 0 }];
+  const [adminsResponse, mappingsResponse, wishlistResponse, definitions] = await Promise.all([
+    rest("admins?select=email,is_superuser&order=created_at.asc"),
+    rest("admin_collections?select=admin_email,collection_id"),
+    rest("admin_wishlist?select=admin_email"),
+    getCollectionDefinitions(),
+  ]);
+  const admins = await adminsResponse.json() as Array<{ email: string; is_superuser: boolean }>;
+  const mappings = await mappingsResponse.json() as Array<{ admin_email: string; collection_id: string }>;
+  const wishes = await wishlistResponse.json() as Array<{ admin_email: string }>;
+  return admins.map((admin) => ({
+    email: admin.email,
+    collectionIds: admin.is_superuser ? definitions.map((item) => item.id) : mappings.filter((item) => item.admin_email === admin.email).map((item) => item.collection_id),
+    wishlistCount: wishes.filter((item) => item.admin_email === admin.email).length,
+  }));
 }
 
 export async function canEditCollection(request: Request, collectionId: string) {
