@@ -39,7 +39,10 @@ export async function getEditorEmail(request: Request) {
   const response = await fetch(`${url}/auth/v1/user`, { headers: { apikey: publicKey!, Authorization: `Bearer ${token}` }, cache: "no-store" });
   if (!response.ok) return null;
   const user = await response.json() as { email?: string };
-  return user.email?.toLowerCase() ?? null;
+  const email = user.email?.toLowerCase();
+  if (!email) return null;
+  const adminResponse = await rest(`admins?email=eq.${encodeURIComponent(email)}&select=email`);
+  return (await adminResponse.json() as Array<{ email: string }>).length ? email : null;
 }
 
 export async function getEditableCollectionIds(email: string | null) {
