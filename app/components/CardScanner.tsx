@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { trainers } from "@/lib/trainers";
 import type { PokemonCard, TrainerId } from "@/lib/types";
 
-type Match = { detected: { name: string; number: string; setName: string; confidence: number }; card: PokemonCard | null; selected?: boolean; quantity?: number };
+type Match = { detected: { name: string; number: string; setName: string; attackDamages: string[]; confidence: number }; card: PokemonCard | null; selected?: boolean; quantity?: number };
 
 function groupMatches(matches: Match[]): Match[] {
   const grouped = new Map<string, Match>();

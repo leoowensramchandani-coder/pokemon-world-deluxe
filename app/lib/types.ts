@@ -8,6 +8,7 @@ export type PokemonCard = {
   rarity?: string;
   artist?: string;
   number?: string;
+  attacks?: Array<{ name?: string; damage?: string }>;
   set: { id: string; name: string };
   images: { small: string; large: string };
 };

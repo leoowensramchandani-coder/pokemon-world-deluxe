@@ -1,7 +1,7 @@
 import type { PokemonCard } from "@/lib/types";
 import { isEditor } from "@/lib/cloud";
 
-type DetectedCard = { name: string; number: string; setName: string; confidence: number };
+type DetectedCard = { name: string; number: string; setName: string; attackDamages: string[]; confidence: number };
 
 function outputText(body: { output?: Array<{ content?: Array<{ text?: string }> }> }) {
   return body.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("") ?? "";
@@ -9,18 +9,30 @@ function outputText(body: { output?: Array<{ content?: Array<{ text?: string }> 
 
 async function findCard(detected: DetectedCard): Promise<PokemonCard | null> {
   const safeName = detected.name.replace(/["\\]/g, "");
-  const queries = detected.number
-    ? [`name:\"${safeName}\" number:${detected.number}`, `name:\"${safeName}\"`]
+  const collectorNumber = detected.number.split("/")[0].replace(/^0+(?=\d)/, "");
+  const queries = collectorNumber
+    ? [`name:\"${safeName}\" number:${collectorNumber}`, `name:\"${safeName}\"`]
     : [`name:\"${safeName}\"`];
   for (const query of queries) {
     const url = new URL("https://api.pokemontcg.io/v2/cards");
-    url.searchParams.set("q", query); url.searchParams.set("pageSize", "10");
+    url.searchParams.set("q", query); url.searchParams.set("pageSize", "100");
     const response = await fetch(url, { headers: process.env.POKEMON_TCG_API_KEY ? { "X-Api-Key": process.env.POKEMON_TCG_API_KEY } : {} });
     if (!response.ok) continue;
     const cards = (await response.json()).data as PokemonCard[];
     if (cards?.length) {
-      const setMatch = cards.find((card) => detected.setName && card.set.name.toLowerCase().includes(detected.setName.toLowerCase()));
-      return setMatch ?? cards[0];
+      const normalizeDamage = (damage: string) => damage.toLowerCase().replace(/\s+/g, "").replace(/×/g, "x");
+      const wantedDamages = detected.attackDamages.map(normalizeDamage).filter(Boolean).sort();
+      const attackMatches = wantedDamages.length
+        ? cards.filter((card) => {
+            const cardDamages = (card.attacks ?? []).map((attack) => normalizeDamage(attack.damage ?? "")).filter(Boolean).sort();
+            return cardDamages.length === wantedDamages.length && cardDamages.every((damage, index) => damage === wantedDamages[index]);
+          })
+        : cards;
+      if (!attackMatches.length) continue;
+      const exactNumber = attackMatches.find((card) => collectorNumber && card.number?.replace(/^0+(?=\d)/, "") === collectorNumber);
+      if (exactNumber) return exactNumber;
+      const setMatch = attackMatches.find((card) => detected.setName && card.set.name.toLowerCase().includes(detected.setName.toLowerCase()));
+      return setMatch ?? attackMatches[0];
     }
   }
   return null;
@@ -45,9 +57,9 @@ export async function POST(request: Request) {
           additionalProperties: false,
           properties: {
             name: { type: "string" }, number: { type: "string" },
-            setName: { type: "string" }, confidence: { type: "number" },
+            setName: { type: "string" }, attackDamages: { type: "array", items: { type: "string" } }, confidence: { type: "number" },
           },
-          required: ["name", "number", "setName", "confidence"],
+          required: ["name", "number", "setName", "attackDamages", "confidence"],
         },
       },
     },
@@ -58,7 +70,7 @@ export async function POST(request: Request) {
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      input: [{ role: "user", content: [{ type: "input_text", text: "Identify every English Pokémon trading card visible in these photos. A binder page may contain up to 18 cards. Read the Pokémon/card name, printed collector number (for example 025/198 or 025), and set name or symbol when visible. Keep cards in visual order, left-to-right and top-to-bottom. Do not invent unreadable cards; lower confidence when uncertain." }, ...imageParts] }],
+      input: [{ role: "user", content: [{ type: "input_text", text: "Identify every English Pokémon trading card visible in these photos. A binder page may contain up to 18 cards. Read the Pokémon/card name, printed collector number (for example 025/198 or 025), set name or symbol, and every printed attack damage score when visible. Attack damage is the number printed at the right of an attack, including modifiers such as 30+, 20x, or 120-. Return attackDamages in top-to-bottom order and omit attacks with no printed damage. Keep cards in visual order, left-to-right and top-to-bottom. Do not invent unreadable text; lower confidence when uncertain." }, ...imageParts] }],
       text: { format: { type: "json_schema", name: "binder_cards", strict: true, schema } },
     }),
   });
