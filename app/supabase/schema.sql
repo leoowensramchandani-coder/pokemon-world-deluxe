@@ -59,7 +59,8 @@ delete from public.admin_collections where admin_email = 'leoramchandani@gmail.c
 insert into public.admins (email, is_superuser) values
   ('rahilramchandani@gmail.com', true),
   ('leoramchandani@gmail.com', false),
-  ('its.sidd@gmail.com', false)
+  ('its.sidd@gmail.com', false),
+  ('miransh16@gmail.com', false)
 on conflict (email) do update set is_superuser = excluded.is_superuser;
 
 insert into storage.buckets (id, name, public) values ('trainer-photos', 'trainer-photos', true)
