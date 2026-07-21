@@ -5,5 +5,5 @@ export async function POST(request: Request) {
   if (!email || !password) return Response.json({ error: "Enter the family email and password." }, { status: 400 });
   const session = await signIn(email, password);
   if (!session) return Response.json({ error: "That login did not work." }, { status: 401 });
-  return Response.json({ accessToken: session.access_token, email: session.user.email });
+  return Response.json({ accessToken: session.access_token, refreshToken: session.refresh_token, email: session.user.email });
 }

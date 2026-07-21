@@ -124,5 +124,5 @@ export async function signIn(email: string, password: string) {
   if (!cloudConfigured) return null;
   const response = await fetch(`${url}/auth/v1/token?grant_type=password`, { method: "POST", headers: { apikey: publicKey!, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }), cache: "no-store" });
   if (!response.ok) return null;
-  return response.json() as Promise<{ access_token: string; user: { email?: string } }>;
+  return response.json() as Promise<{ access_token: string; refresh_token: string; user: { email?: string } }>;
 }

@@ -8,5 +8,5 @@ export async function POST(request: Request) {
   const response = await fetch(`${url}/auth/v1/signup?redirect_to=${encodeURIComponent(redirect)}`, { method: "POST", headers: { apikey: key ?? "", "Content-Type": "application/json" }, body: JSON.stringify({ email: email.toLowerCase(), password }), cache: "no-store" });
   const body = await response.json();
   if (!response.ok) return Response.json({ error: body.msg ?? body.message ?? "Could not create that account." }, { status: response.status });
-  return Response.json({ message: body.access_token ? "Account created!" : "Account created! Check your email, then open the confirmation link.", accessToken: body.access_token });
+  return Response.json({ message: body.access_token ? "Account created!" : "Account created! Check your email, then open the confirmation link.", accessToken: body.access_token, refreshToken: body.refresh_token });
 }
