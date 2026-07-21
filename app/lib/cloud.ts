@@ -4,8 +4,7 @@ import { trainers } from "./trainers";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const superuserEmail = "rahilramchandani@gmail.com";
-const knownAdminEmails = [superuserEmail, "leoramchandani@gmail.com", "its.sidd@gmail.com", "miransh16@gmail.com"];
+const knownAdminEmails = ["rahilramchandani@gmail.com", "leoramchandani@gmail.com", "its.sidd@gmail.com", "miransh16@gmail.com"];
 
 export const cloudConfigured = Boolean(url && publicKey && serviceKey);
 
@@ -42,33 +41,28 @@ export async function getEditorEmail(request: Request) {
   if (!response.ok) return null;
   const user = await response.json() as { email?: string };
   const email = user.email?.toLowerCase();
-  if (!email) return null;
-  if (knownAdminEmails.includes(email)) return email;
-  const mappingResponse = await rest(`admin_collections?admin_email=eq.${encodeURIComponent(email)}&select=admin_email&limit=1`);
-  return (await mappingResponse.json() as Array<{ admin_email: string }>).length ? email : null;
+  return email ?? null;
 }
 
 export async function getEditableCollectionIds(email: string | null) {
   if (!email) return [];
   if (!cloudConfigured) return trainers.map((item) => item.id);
-  if (email === superuserEmail) return (await getCollectionDefinitions()).map((item) => item.id);
   const response = await rest(`admin_collections?admin_email=eq.${encodeURIComponent(email)}&select=collection_id`);
   return (await response.json() as Array<{ collection_id: string }>).map((row) => row.collection_id);
 }
 
 export async function getPublicBadgeAdmins(): Promise<AdminBadgeProfile[]> {
   if (!cloudConfigured) return [{ email: "Family Admin", collectionIds: trainers.map((item) => item.id), wishlistCount: 0 }];
-  const [mappingsResponse, wishlistResponse, definitions] = await Promise.all([
+  const [mappingsResponse, wishlistResponse] = await Promise.all([
     rest("admin_collections?select=admin_email,collection_id"),
     rest("admin_wishlist?select=admin_email"),
-    getCollectionDefinitions(),
   ]);
   const mappings = await mappingsResponse.json() as Array<{ admin_email: string; collection_id: string }>;
   const wishes = await wishlistResponse.json() as Array<{ admin_email: string }>;
   const emails = Array.from(new Set([...knownAdminEmails, ...mappings.map((item) => item.admin_email)]));
   return emails.map((email) => ({
     email,
-    collectionIds: email === superuserEmail ? definitions.map((item) => item.id) : mappings.filter((item) => item.admin_email === email).map((item) => item.collection_id),
+    collectionIds: mappings.filter((item) => item.admin_email === email).map((item) => item.collection_id),
     wishlistCount: wishes.filter((item) => item.admin_email === email).length,
   }));
 }

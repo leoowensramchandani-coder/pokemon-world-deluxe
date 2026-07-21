@@ -51,13 +51,14 @@ insert into public.collection_definitions (id, name, title, badge, photo, theme,
 on conflict (id) do nothing;
 
 insert into public.admin_collections (admin_email, collection_id) values
+  ('rahilramchandani@gmail.com', 'papa'),
   ('leoramchandani@gmail.com', 'leo'), ('leoramchandani@gmail.com', 'remy')
 on conflict do nothing;
 
 delete from public.admin_collections where admin_email = 'leoramchandani@gmail.com' and collection_id = 'papa';
 
 insert into public.admins (email, is_superuser) values
-  ('rahilramchandani@gmail.com', true),
+  ('rahilramchandani@gmail.com', false),
   ('leoramchandani@gmail.com', false),
   ('its.sidd@gmail.com', false),
   ('miransh16@gmail.com', false)

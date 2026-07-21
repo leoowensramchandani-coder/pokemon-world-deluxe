@@ -1,35 +1,25 @@
 "use client";
 import { useEffect, useState } from "react";
 
+type Mode = "login" | "register" | "recover";
+
 export default function FamilyLogin({ accessToken, onLogin, onLogout }: { accessToken: string; onLogin: (token: string) => void; onLogout: () => void }) {
-  const [open, setOpen] = useState(false); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [setupToken, setSetupToken] = useState(""); const [message, setMessage] = useState("");
+  const [open, setOpen] = useState(false); const [mode, setMode] = useState<Mode>("login"); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [setupToken, setSetupToken] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const token = params.get("access_token");
-    const type = params.get("type");
-    if (token && (type === "invite" || type === "recovery")) {
-      setSetupToken(token);
-      setOpen(true);
-      setMessage("Choose your new Family Password.");
-    }
-  }, []);
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, "")); const token = params.get("access_token"); const type = params.get("type");
+    if (token && (type === "invite" || type === "recovery")) { setSetupToken(token); setOpen(true); setMessage("Choose your new Admin Password."); }
+    else if (token && (type === "signup" || type === "email")) { window.history.replaceState({}, "", window.location.pathname); onLogin(token); }
+  }, [onLogin]);
 
-  async function login(event: React.FormEvent) { event.preventDefault(); setMessage("Checking your Trainer Pass…"); const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) }); const body = await response.json(); if (!response.ok) setMessage(body.error ?? "Login failed."); else { onLogin(body.accessToken); setOpen(false); setPassword(""); } }
-  async function createPassword(event: React.FormEvent) {
-    event.preventDefault();
-    if (password.length < 8) return setMessage("Please use at least 8 characters.");
-    if (password !== confirmPassword) return setMessage("Those passwords do not match yet.");
-    setMessage("Creating your Family Password…");
-    const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/user`, { method: "PUT", headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "", Authorization: `Bearer ${setupToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
-    if (!response.ok) return setMessage("That link has expired. Please request a new password email.");
-    window.history.replaceState({}, "", window.location.pathname);
-    onLogin(setupToken);
-    setOpen(false);
-    setPassword("");
-    setConfirmPassword("");
-    setSetupToken("");
-  }
+  function switchMode(next: Mode) { setMode(next); setMessage(""); setPassword(""); setConfirmPassword(""); }
+  async function login(event: React.FormEvent) { event.preventDefault(); setBusy(true); setMessage("Checking your Trainer Pass…"); const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) }); const body = await response.json(); setBusy(false); if (!response.ok) setMessage(body.error ?? "Login failed."); else { onLogin(body.accessToken); setOpen(false); setPassword(""); } }
+  async function register(event: React.FormEvent) { event.preventDefault(); if (password.length < 8) return setMessage("Please use at least 8 characters."); if (password !== confirmPassword) return setMessage("Those passwords do not match yet."); setBusy(true); setMessage("Creating your Trainer account…"); const response = await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) }); const body = await response.json(); setBusy(false); setMessage(body.error ?? body.message); if (response.ok && body.accessToken) { onLogin(body.accessToken); setOpen(false); } }
+  async function recover(event: React.FormEvent) { event.preventDefault(); setBusy(true); setMessage("Sending your reset email…"); const response = await fetch("/api/auth/recover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) }); const body = await response.json(); setBusy(false); setMessage(body.error ?? body.message); }
+  async function createPassword(event: React.FormEvent) { event.preventDefault(); if (password.length < 8) return setMessage("Please use at least 8 characters."); if (password !== confirmPassword) return setMessage("Those passwords do not match yet."); setBusy(true); setMessage("Saving your new Admin Password…"); const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/user`, { method: "PUT", headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "", Authorization: `Bearer ${setupToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ password }) }); setBusy(false); if (!response.ok) return setMessage("That link has expired. Please request a new password email."); window.history.replaceState({}, "", window.location.pathname); onLogin(setupToken); setOpen(false); setPassword(""); setConfirmPassword(""); setSetupToken(""); }
+
   if (accessToken) return <button className="family-login signed-in" onClick={onLogout}>🔓 Admin editing on</button>;
-  return <>{<button className="family-login" onClick={() => setOpen(true)}>🔒 Admin Sign In</button>}{open && <div className="modal-backdrop login-layer" role="dialog" aria-modal="true"><form className="login-card" onSubmit={setupToken ? createPassword : login}><button type="button" className="close-button" onClick={() => setOpen(false)}>×</button><p className="eyebrow">Trainer Pass</p><h2>{setupToken ? "Create Admin Password" : "Admin Sign In"}</h2><p>{setupToken ? "Choose a password that only the grown-ups know." : "Visitors can look. Admins sign in to manage their own binders."}</p>{!setupToken && <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required/></label>}<label>{setupToken ? "New password" : "Password"}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required/></label>{setupToken && <label>Type it again<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required/></label>}{message && <p className="search-message">{message}</p>}<button className="primary-button">{setupToken ? "Create Password" : "Sign In"}</button></form></div>}</>;
+  const submit = setupToken ? createPassword : mode === "register" ? register : mode === "recover" ? recover : login;
+  const title = setupToken ? "Choose New Password" : mode === "register" ? "Create Admin Account" : mode === "recover" ? "Reset Password" : "Admin Sign In";
+  return <><button className="family-login" onClick={() => setOpen(true)}>🔒 Admin Sign In</button>{open && <div className="modal-backdrop login-layer" role="dialog" aria-modal="true"><form className="login-card" onSubmit={submit}><button type="button" className="close-button" onClick={() => setOpen(false)}>×</button><p className="eyebrow">Trainer Pass</p><h2>{title}</h2><p>{setupToken ? "Choose a password that only you know." : mode === "register" ? "Create an account, then build your own Pokémon collection!" : mode === "recover" ? "We will email you a safe password-reset link." : "Visitors can look. Admins sign in to manage their own binders."}</p>{!setupToken && <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required/></label>}{mode !== "recover" && <label>{setupToken ? "New password" : "Password"}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required/></label>}{(setupToken || mode === "register") && <label>Type it again<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required/></label>}{message && <p className="search-message">{message}</p>}<button className="primary-button" disabled={busy}>{busy ? "Please wait…" : title}</button>{!setupToken && <div className="account-links">{mode !== "login" && <button type="button" onClick={() => switchMode("login")}>Sign In</button>}{mode !== "register" && <button type="button" onClick={() => switchMode("register")}>Create Account</button>}{mode !== "recover" && <button type="button" onClick={() => switchMode("recover")}>Forgot Password?</button>}</div>}</form></div>}</>;
 }
