@@ -1,5 +1,20 @@
 import type { PokemonCard } from "@/lib/types";
 
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function fetchPage(url: URL, headers: HeadersInit) {
+  let lastError = new Error("Card service unavailable");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, { headers, next: { revalidate: 3600 } });
+      if (response.ok) return await response.json() as { data: PokemonCard[]; totalCount?: number };
+      lastError = new Error(`Card service unavailable: ${response.status}`);
+    } catch (error) { lastError = error instanceof Error ? error : lastError; }
+    await wait(300 * (attempt + 1));
+  }
+  throw lastError;
+}
+
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams.get("q")?.trim();
   if (!query) return Response.json({ data: [] });
@@ -15,9 +30,7 @@ export async function GET(request: Request) {
       url.searchParams.set("page", String(page));
       url.searchParams.set("pageSize", "250");
       url.searchParams.set("orderBy", "name");
-      const response = await fetch(url, { headers, next: { revalidate: 3600 } });
-      if (!response.ok) throw new Error("Card service unavailable");
-      const body = await response.json() as { data: PokemonCard[]; totalCount?: number };
+      const body = await fetchPage(url, headers);
       data.push(...body.data);
       totalCount = body.totalCount ?? data.length;
       page += 1;
