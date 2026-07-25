@@ -22,7 +22,7 @@ export type PokemonCard = {
   artist?: string;
   number?: string;
   attacks?: Array<{ name?: string; damage?: string }>;
-  set: { id: string; name: string };
+  set: { id: string; name: string; printedTotal?: number };
   images: { small: string; large: string };
 };
 

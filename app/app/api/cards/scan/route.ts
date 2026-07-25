@@ -9,7 +9,9 @@ function outputText(body: { output?: Array<{ content?: Array<{ text?: string }> 
 
 async function findCard(detected: DetectedCard): Promise<PokemonCard | null> {
   const safeName = detected.name.replace(/["\\]/g, "");
-  const collectorNumber = detected.number.split("/")[0].replace(/^0+(?=\d)/, "");
+  const numberParts = detected.number.match(/0*(\d+)\s*(?:\/\s*0*(\d+))?/);
+  const collectorNumber = numberParts?.[1] ?? "";
+  const printedTotal = numberParts?.[2] ?? "";
   const url = new URL("https://api.pokemontcg.io/v2/cards");
   url.searchParams.set("q", `name:\"${safeName}\"`); url.searchParams.set("pageSize", "100");
   let cards: PokemonCard[] = [];
@@ -21,20 +23,32 @@ async function findCard(detected: DetectedCard): Promise<PokemonCard | null> {
   if (!cards.length) return null;
   const normalizeDamage = (damage: string) => damage.toLowerCase().replace(/\s+/g, "").replace(/×/g, "x");
   const normalizeName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalizeSet = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
   const wantedDamages = detected.attackDamages.map(normalizeDamage).filter(Boolean);
   const wantedAttackNames = detected.attackNames.map(normalizeName).filter(Boolean);
   const wantedHp = detected.hp.replace(/\D/g, "");
+  const wantedSet = normalizeSet(detected.setName);
   const overlap = (wanted: string[], actual: string[]) => wanted.length ? wanted.filter((value) => actual.includes(value)).length / wanted.length : 0;
   const ranked = cards.map((card) => {
     const numberMatch = Boolean(collectorNumber && card.number?.replace(/^0+(?=\d)/, "") === collectorNumber);
+    const totalMatch = Boolean(printedTotal && String(card.set.printedTotal ?? "") === printedTotal);
     const hpMatch = Boolean(wantedHp && card.hp?.replace(/\D/g, "") === wantedHp);
-    const damageScore = overlap(wantedDamages, (card.attacks ?? []).map((attack) => normalizeDamage(attack.damage ?? "")).filter(Boolean));
-    const attackNameScore = overlap(wantedAttackNames, (card.attacks ?? []).map((attack) => normalizeName(attack.name ?? "")).filter(Boolean));
-    const setMatch = Boolean(detected.setName && card.set.name.toLowerCase().includes(detected.setName.toLowerCase()));
-    const score = (numberMatch ? 80 : collectorNumber ? -20 : 0) + (hpMatch ? 35 : wantedHp ? -10 : 0) + damageScore * 35 + attackNameScore * 30 + (setMatch ? 20 : 0);
-    return { card, score };
+    const actualDamages = (card.attacks ?? []).map((attack) => normalizeDamage(attack.damage ?? "")).filter(Boolean);
+    const actualAttackNames = (card.attacks ?? []).map((attack) => normalizeName(attack.name ?? "")).filter(Boolean);
+    const damageScore = overlap(wantedDamages, actualDamages);
+    const attackNameScore = overlap(wantedAttackNames, actualAttackNames);
+    const orderedAttackScore = wantedAttackNames.length ? wantedAttackNames.filter((name, index) => name === actualAttackNames[index] && (!wantedDamages[index] || wantedDamages[index] === actualDamages[index])).length / wantedAttackNames.length : 0;
+    const actualSet = normalizeSet(card.set.name);
+    const setMatch = Boolean(wantedSet && (actualSet === wantedSet || actualSet.includes(wantedSet) || wantedSet.includes(actualSet)));
+    const score = (numberMatch ? 85 : collectorNumber ? -45 : 0) + (totalMatch ? 65 : printedTotal ? -50 : 0) + (hpMatch ? 45 : wantedHp ? -25 : 0) + damageScore * 35 + attackNameScore * 40 + orderedAttackScore * 55 + (setMatch ? 45 : wantedSet ? -15 : 0);
+    const evidence = [numberMatch, totalMatch, hpMatch, setMatch, attackNameScore === 1 && wantedAttackNames.length > 0, damageScore === 1 && wantedDamages.length > 0].filter(Boolean).length;
+    return { card, score, evidence, numberMatch, totalMatch, setMatch, orderedAttackScore };
   }).sort((a, b) => b.score - a.score);
-  return ranked[0]?.score >= 25 || cards.length === 1 ? ranked[0].card : null;
+  const best = ranked[0]; const second = ranked[1];
+  if (!best || detected.confidence < .3 || best.score < 65 || best.evidence < 2) return null;
+  const identityMatch = (best.numberMatch && best.totalMatch) || (best.numberMatch && best.setMatch) || best.orderedAttackScore === 1;
+  if (second && best.score - second.score < 20 && !identityMatch) return null;
+  return best.card;
 }
 
 export async function POST(request: Request) {
@@ -70,7 +84,7 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       model: "gpt-4.1",
       max_output_tokens: 5000,
-      input: [{ role: "user", content: [{ type: "input_text", text: "Scan the entire binder picture, not only the clearest cards. First count every occupied card pocket row by row. Then return exactly one result for every visible English Pokémon trading card, up to 18 cards. Carefully zoom into each pocket and read the card name, printed HP number, printed collector number (for example 025/198 or 025), set name or symbol, every attack name, and every printed attack damage score. Put only the numeric HP value in hp. Return attackNames and attackDamages in top-to-bottom order. Attack damage is the number at the right of an attack, including modifiers such as 30+, 20x, or 120-; omit damage only when none is printed. Preserve visual order: top-left to bottom-right. For a blurry card, provide the best supported reading and lower confidence instead of skipping the pocket. Never stop after the first row. Exact HP, attack names, and attack damage are important because cards with the same Pokémon name can be different printings." }, ...imageParts] }],
+      input: [{ role: "user", content: [{ type: "input_text", text: "Inspect the entire image as a grid of separate cards. First count every occupied card or binder pocket row by row, including all rows, then inspect each card independently from top-left to bottom-right. Return exactly one result for every visible English Pokémon trading card, up to 18 cards. For each card, zoom in and transcribe only what is visibly printed: exact card name including suffixes such as ex, V, VMAX, or GX; numeric HP; the complete collector number including the denominator (for example 025/198); set name when readable; and every attack name paired in the same top-to-bottom order with its printed damage. Attack damage includes modifiers such as 30+, 20x, or 120-. Double-check that HP, collector number, attack names, and damages all came from the same pocket before moving to the next card. Do not identify a card from artwork or Pokémon name alone and do not copy details between similar cards. If identifying text is blurry, give the best literal reading with low confidence rather than inventing familiar values. Never stop after the first row." }, ...imageParts] }],
       text: { format: { type: "json_schema", name: "binder_cards", strict: true, schema } },
     }),
   });
