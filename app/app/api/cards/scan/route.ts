@@ -10,38 +10,31 @@ function outputText(body: { output?: Array<{ content?: Array<{ text?: string }> 
 async function findCard(detected: DetectedCard): Promise<PokemonCard | null> {
   const safeName = detected.name.replace(/["\\]/g, "");
   const collectorNumber = detected.number.split("/")[0].replace(/^0+(?=\d)/, "");
-  const queries = collectorNumber
-    ? [`name:\"${safeName}\" number:${collectorNumber}`, `name:\"${safeName}\"`]
-    : [`name:\"${safeName}\"`];
-  for (const query of queries) {
-    const url = new URL("https://api.pokemontcg.io/v2/cards");
-    url.searchParams.set("q", query); url.searchParams.set("pageSize", "100");
-    const response = await fetch(url, { headers: process.env.POKEMON_TCG_API_KEY ? { "X-Api-Key": process.env.POKEMON_TCG_API_KEY } : {} });
-    if (!response.ok) continue;
-    const cards = (await response.json()).data as PokemonCard[];
-    if (cards?.length) {
-      const normalizeDamage = (damage: string) => damage.toLowerCase().replace(/\s+/g, "").replace(/×/g, "x");
-      const normalizeName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const wantedDamages = detected.attackDamages.map(normalizeDamage).filter(Boolean).sort();
-      const wantedAttackNames = detected.attackNames.map(normalizeName).filter(Boolean).sort();
-      const wantedHp = detected.hp.replace(/\D/g, "");
-      const ranked = cards.map((card) => {
-        const numberMatch = Boolean(collectorNumber && card.number?.replace(/^0+(?=\d)/, "") === collectorNumber);
-        const hpMatch = Boolean(wantedHp && card.hp?.replace(/\D/g, "") === wantedHp);
-        const cardDamages = (card.attacks ?? []).map((attack) => normalizeDamage(attack.damage ?? "")).filter(Boolean).sort();
-        const cardAttackNames = (card.attacks ?? []).map((attack) => normalizeName(attack.name ?? "")).filter(Boolean).sort();
-        const damageMatch = !wantedDamages.length || (cardDamages.length === wantedDamages.length && cardDamages.every((damage, index) => damage === wantedDamages[index]));
-        const attackNameMatch = !wantedAttackNames.length || (cardAttackNames.length === wantedAttackNames.length && cardAttackNames.every((name, index) => name === wantedAttackNames[index]));
-        const attacksMatch = Boolean((wantedDamages.length || wantedAttackNames.length) && damageMatch && attackNameMatch);
-        const setMatch = Boolean(detected.setName && card.set.name.toLowerCase().includes(detected.setName.toLowerCase()));
-        const conflicts = Boolean((collectorNumber && !numberMatch) || (wantedHp && !hpMatch) || ((wantedDamages.length || wantedAttackNames.length) && !attacksMatch));
-        return { card, numberMatch, hpMatch, attacksMatch, setMatch, conflicts, score: (numberMatch ? 100 : 0) + (attacksMatch ? 50 : 0) + (hpMatch ? 30 : 0) + (setMatch ? 20 : 0) };
-      }).filter((item) => !item.conflicts).sort((a, b) => b.score - a.score);
-      const best = ranked[0];
-      if (best && ((best.numberMatch && (best.setMatch || best.hpMatch || best.attacksMatch)) || (best.hpMatch && best.attacksMatch) || (best.attacksMatch && best.setMatch))) return best.card;
-    }
+  const url = new URL("https://api.pokemontcg.io/v2/cards");
+  url.searchParams.set("q", `name:\"${safeName}\"`); url.searchParams.set("pageSize", "100");
+  let cards: PokemonCard[] = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(url, { headers: process.env.POKEMON_TCG_API_KEY ? { "X-Api-Key": process.env.POKEMON_TCG_API_KEY } : {}, cache: "no-store" });
+    if (response.ok) { cards = (await response.json()).data as PokemonCard[]; break; }
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
   }
-  return null;
+  if (!cards.length) return null;
+  const normalizeDamage = (damage: string) => damage.toLowerCase().replace(/\s+/g, "").replace(/×/g, "x");
+  const normalizeName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const wantedDamages = detected.attackDamages.map(normalizeDamage).filter(Boolean);
+  const wantedAttackNames = detected.attackNames.map(normalizeName).filter(Boolean);
+  const wantedHp = detected.hp.replace(/\D/g, "");
+  const overlap = (wanted: string[], actual: string[]) => wanted.length ? wanted.filter((value) => actual.includes(value)).length / wanted.length : 0;
+  const ranked = cards.map((card) => {
+    const numberMatch = Boolean(collectorNumber && card.number?.replace(/^0+(?=\d)/, "") === collectorNumber);
+    const hpMatch = Boolean(wantedHp && card.hp?.replace(/\D/g, "") === wantedHp);
+    const damageScore = overlap(wantedDamages, (card.attacks ?? []).map((attack) => normalizeDamage(attack.damage ?? "")).filter(Boolean));
+    const attackNameScore = overlap(wantedAttackNames, (card.attacks ?? []).map((attack) => normalizeName(attack.name ?? "")).filter(Boolean));
+    const setMatch = Boolean(detected.setName && card.set.name.toLowerCase().includes(detected.setName.toLowerCase()));
+    const score = (numberMatch ? 80 : collectorNumber ? -20 : 0) + (hpMatch ? 35 : wantedHp ? -10 : 0) + damageScore * 35 + attackNameScore * 30 + (setMatch ? 20 : 0);
+    return { card, score };
+  }).sort((a, b) => b.score - a.score);
+  return ranked[0]?.score >= 25 || cards.length === 1 ? ranked[0].card : null;
 }
 
 export async function POST(request: Request) {
@@ -92,6 +85,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "The scanner could not read those pictures. Please try again.", code }, { status: 502 });
   }
   const detected = JSON.parse(outputText(await aiResponse.json()) || "{\"cards\":[]}").cards as DetectedCard[];
-  const matched = await Promise.all(detected.map(async (item) => ({ detected: item, card: await findCard(item) })));
+  const matched = [] as Array<{ detected: DetectedCard; card: PokemonCard | null }>;
+  for (const item of detected) { matched.push({ detected: item, card: await findCard(item) }); await new Promise((resolve) => setTimeout(resolve, 120)); }
   return Response.json({ matches: matched });
 }
