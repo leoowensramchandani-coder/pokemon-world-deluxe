@@ -113,6 +113,13 @@ export async function getWishlist(email: string) {
   const response = await rest(`admin_wishlist?admin_email=eq.${encodeURIComponent(email)}&select=card&order=added_at.desc`);
   return (await response.json() as Array<{ card: PokemonCard }>).map((row) => row.card);
 }
+export async function getPublicWishlistForCollection(collectionId: string) {
+  if (!cloudConfigured) return [] as PokemonCard[];
+  const mappingsResponse = await rest(`admin_collections?collection_id=eq.${encodeURIComponent(collectionId)}&select=admin_email`);
+  const emails = Array.from(new Set((await mappingsResponse.json() as Array<{ admin_email: string }>).map((row) => row.admin_email)));
+  const wishlists = await Promise.all(emails.map((email) => getWishlist(email)));
+  return Array.from(new Map(wishlists.flat().map((card) => [card.id, card])).values());
+}
 export async function addWishlistCard(email: string, card: PokemonCard) {
   await rest("admin_wishlist?on_conflict=admin_email,card_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ admin_email: email, card_id: card.id, card }) });
 }

@@ -1,10 +1,16 @@
 import type { PokemonCard } from "@/lib/types";
-import { addWishlistCard, getEditorEmail, getWishlist, removeWishlistCard } from "@/lib/cloud";
+import { addWishlistCard, getEditorEmail, getPublicWishlistForCollection, getWishlist, removeWishlistCard } from "@/lib/cloud";
 
 export async function GET(request: Request) {
   const email = await getEditorEmail(request);
-  if (!email) return Response.json({ cards: [] });
-  return Response.json({ cards: await getWishlist(email) });
+  const collectionId = new URL(request.url).searchParams.get("collectionId");
+  if (collectionId) {
+    const [cards, ownCards] = await Promise.all([getPublicWishlistForCollection(collectionId), email ? getWishlist(email) : Promise.resolve([])]);
+    return Response.json({ cards, ownCardIds: ownCards.map((card) => card.id) });
+  }
+  if (!email) return Response.json({ cards: [], ownCardIds: [] });
+  const cards = await getWishlist(email);
+  return Response.json({ cards, ownCardIds: cards.map((card) => card.id) });
 }
 export async function POST(request: Request) {
   const email = await getEditorEmail(request);
